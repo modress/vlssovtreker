@@ -46,7 +46,8 @@ db.execute("""CREATE TABLE IF NOT EXISTS listings(
     id TEXT PRIMARY KEY, name TEXT, link TEXT, owner TEXT,
     price REAL, currency TEXT, section INT, msg_id INT,
     status TEXT DEFAULT 'open', taken_by INT, taken_at TEXT)""")
-db.execute("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY)")
+db.execute("""CREATE TABLE IF NOT EXISTS topics(
+    section INT PRIMARY KEY, thread_id INT)""")
 
 
 def get_topics() -> dict[int, int]:
