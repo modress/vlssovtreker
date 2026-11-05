@@ -308,7 +308,7 @@ async def poller():
 async def main():
     logging.basicConfig(level=logging.INFO)
     
-    # Безопасное подключение Telethon без запроса ввода в консоль (без input)
+    # ⚠️ ВНИМАНИЕ: Здесь должен быть tg.connect(), а не tg.start()!
     await tg.connect()
     
     if not await tg.is_user_authorized():
