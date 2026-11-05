@@ -1,12 +1,7 @@
 """
 Трекер маркета подарков Telegram.
-pip install aiogram==3.*
-
-ENV: BOT_TOKEN, GROUP_ID (id супергруппы с включёнными топиками, вида -100...), ADMIN_ID
-     API_ID, API_HASH (с https://my.telegram.org -> API development tools)
-Разделы 1,2,3,4 бот создаёт сам командой /setup (написать её в группе от имени админа).
-Лоты берутся с официального маркета подарков Telegram через пользовательский аккаунт (Telethon).
-pip install "aiogram>=3,<4" -U telethon
+Установка зависимостей:
+pip install aiogram==3.* "aiogram>=3,<4" -U telethon python-dotenv
 """
 import asyncio
 import logging
@@ -25,22 +20,28 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from telethon import TelegramClient, functions
 from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError
+from dotenv import load_dotenv
 
-# Получаем параметры из переменных окружения
-API_ID = int(os.environ["API_ID"])
-API_HASH = os.environ["API_HASH"]
-GROUP_ID = int(os.environ["GROUP_ID"])
-session_string = os.environ["SESSION_STRING"]
+# Загружаем переменные окружения из файла .env (если он есть)
+load_dotenv()
 
-# Считываем токен и параметры из переменных окружения
-TOKEN = os.environ["BOT_TOKEN"]
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+# Получаем параметры из переменных окружения (или подставляем напрямую)
+API_ID = int(os.environ.get("API_ID", 30217191))
+API_HASH = os.environ.get("API_HASH", "e9bff42e86f6abd93260b02970d4f1fa")
+GROUP_ID = int(os.environ.get("GROUP_ID", -1004434066718))
+session_string = os.environ.get("SESSION_STRING", "1AZWarzwBuyFEKy1jnUI4RQ6tOO8lf8GkHAzdFHhxvImiMO2qnk-NparD8Lf4HGddDsI9tdosgUYJWbgHG5iE0sk5cUHvCzud6kbXBnozHT40CIoejAuhk7TuJPdJuuT4xjX6AomPl4FjWh2ubITAqoNVAD5z2CgRWLDD7GBR_t9aCovXUVo1lMCO7m3ry2HQGpYaZasD57KMB_LMeO5OUwvBl0Z4sVP_k6uHLYprou_ThrhsMitPLmQt2zTqtfrOXINNc6Im-bcTWamecy5g-g5jsNYeolAStvBipbDTfq70OSbhOkoHx_A3KuehVjpvT4bXvzQECNxhqcaGBo5aqQQN7CmePto=")
+
+TOKEN = os.environ.get("BOT_TOKEN", "9049089401:AAFf9p1kng9bEOoWrbktKv5754e1JdwwlVE")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "8517673426"))
 REQUEST_DELAY = float(os.environ.get("REQUEST_DELAY", "1.0"))
 BACKFILL = int(os.environ.get("BACKFILL", "1"))
 
-# Инициализация клиента через StringSession (для личного аккаунта)
+# Инициализация клиентов
 tg = TelegramClient(StringSession(session_string), API_ID, API_HASH)
-    # Дальше идет ваш основной код (например, запуск aiogram / циклов)
+bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
+
+# Инициализация базы данных
 db = sqlite3.connect("tracker.db", isolation_level=None)
 db.execute("""CREATE TABLE IF NOT EXISTS listings(
     id TEXT PRIMARY KEY, name TEXT, link TEXT, owner TEXT,
@@ -52,9 +53,6 @@ db.execute("""CREATE TABLE IF NOT EXISTS topics(
 
 def get_topics() -> dict[int, int]:
     return dict(db.execute("SELECT section, thread_id FROM topics").fetchall())
-
-bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
 
 
 def section_of(price: float, currency: str) -> int | None:
@@ -82,6 +80,7 @@ async def publish(l: dict):
         return False
     if db.execute("SELECT 1 FROM listings WHERE id=?", (l["id"],)).fetchone():
         return False  # уже публиковали
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🔥 Забрать лог", callback_data=f"take:{l['id']}")
     ]])
@@ -94,12 +93,17 @@ async def publish(l: dict):
     )
     while True:
         try:
-            m = await bot.send_message(GROUP_ID, text, reply_markup=kb,
-                                       message_thread_id=topics[section],
-                                       disable_web_page_preview=True)
+            m = await bot.send_message(
+                GROUP_ID, text, reply_markup=kb,
+                message_thread_id=topics[section],
+                disable_web_page_preview=True
+            )
             break
         except TelegramRetryAfter as e:
             await asyncio.sleep(e.retry_after + 1)
+        except Exception:
+            return False
+
     db.execute("INSERT INTO listings(id,name,link,owner,price,currency,section,msg_id) "
                "VALUES(?,?,?,?,?,?,?,?)",
                (l["id"], l["name"], l["link"], l["owner"], l["price"], l["currency"], section, m.message_id))
@@ -118,8 +122,11 @@ async def take(cb: CallbackQuery):
     if cur.rowcount == 0:
         return await cb.answer("Этот лог уже забрали", show_alert=True)
 
-    name, link, owner, price, currency, msg_id = db.execute(
-        "SELECT name,link,owner,price,currency,msg_id FROM listings WHERE id=?", (lid,)).fetchone()
+    row = db.execute("SELECT name,link,owner,price,currency,msg_id FROM listings WHERE id=?", (lid,)).fetchone()
+    if not row:
+        return await cb.answer("Лот не найден", show_alert=True)
+    
+    name, link, owner, price, currency, msg_id = row
 
     # уведомление в личку бота
     try:
@@ -144,8 +151,6 @@ async def take(cb: CallbackQuery):
         await cb.message.edit_text(
             f"❌ <s>{escape(name)} — {fmt_price(price, currency)}</s>\n🔒 Лог забрал {who}",
             reply_markup=None)
-        # хочешь, чтобы сообщение пропадало совсем — замени строку выше на:
-        # await cb.message.delete()
     except TelegramBadRequest:
         pass
     await cb.answer("Лог твой! Детали в личке с ботом")
@@ -172,14 +177,8 @@ async def topics_info(m: Message):
 
 @dp.message(CommandStart())
 async def start(m: Message):
-    # Сначала создаем таблицы, если их нет
     db.execute("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY)")
-    db.execute("""CREATE TABLE IF NOT EXISTS topics(
-        section INT PRIMARY KEY, thread_id INT)""")
-    
-    # И только потом записываем пользователя
     db.execute("INSERT OR IGNORE INTO users (id) VALUES (?)", (m.from_user.id,))
-    
     await m.answer("Готово ✅ Сюда будут приходить только уведомления о взятых логах.")
 
 
@@ -199,14 +198,10 @@ async def fake(m: Message):
 
 _gift_ids: list[int] = []
 _gift_ids_at = 0.0
-_baseline_done = False
-
-
 _raw_logged = 0
 
 
 def price_of(g):
-    """Цена лота: для лотов только за TON берём TON, иначе приоритет звёзды."""
     global _raw_logged
     stars = ton = None
     for a in (getattr(g, "resell_amount", None) or []):
@@ -215,7 +210,7 @@ def price_of(g):
             stars = a.amount
         elif name == "StarsTonAmount":
             ton = a.amount / 1e9  # нано-TON -> TON
-    if _raw_logged < 5:  # для отладки: как выглядит цена в сыром виде
+    if _raw_logged < 5:
         _raw_logged += 1
         logging.info("цена сырая: %s | ton_only=%s", getattr(g, "resell_amount", None),
                      getattr(g, "resale_ton_only", None))
@@ -239,21 +234,19 @@ def owner_of(g, users: dict) -> str:
 
 
 async def refresh_gift_ids():
-    """Список коллекций, у которых есть лоты на перепродаже (обновляем раз в 10 минут)."""
     global _gift_ids, _gift_ids_at
     if _gift_ids and time.time() - _gift_ids_at < 600:
         return
     res = await tg(functions.payments.GetStarGiftsRequest(hash=0))
     all_gifts = getattr(res, "gifts", [])
     _gift_ids = [g.id for g in all_gifts if getattr(g, "availability_resale", 0)]
-    if not _gift_ids:  # если поле не пришло, проверяем все коллекции
+    if not _gift_ids:
         _gift_ids = [g.id for g in all_gifts]
     _gift_ids_at = time.time()
     logging.info("коллекций с лотами: %d", len(_gift_ids))
 
 
 async def fetch_collection(gid: int) -> list[dict]:
-    """Лоты одной коллекции, самые свежие первыми."""
     res = await tg(functions.payments.GetResaleStarGiftsRequest(gift_id=gid, offset="", limit=30))
     users = {u.id: u for u in res.users}
     out = []
@@ -270,7 +263,6 @@ async def fetch_collection(gid: int) -> list[dict]:
 
 
 async def poller():
-    """Бесконечно обходит коллекции и публикует лоты сразу, не дожидаясь конца круга."""
     first_round = True
     while True:
         try:
@@ -290,7 +282,6 @@ async def poller():
                 total += len(items)
                 for l in items:
                     if first_round and l["rank"] >= BACKFILL:
-                        # при первом круге старые лоты только запоминаем
                         db.execute("INSERT OR IGNORE INTO listings(id,name,link,owner,price,currency,section,status) "
                                    "VALUES(?,?,?,?,?,?,?,'seen')",
                                    (l["id"], l["name"], l["link"], l["owner"], l["price"], l["currency"],
@@ -317,20 +308,18 @@ async def poller():
 async def main():
     logging.basicConfig(level=logging.INFO)
     
-    # Безопасно подключаем клиент через StringSession без интерактивного ввода
+    # Авторизация в Telethon
     await tg.start()
     
-    # Проверяем, удалось ли авторизоваться
     if not await tg.is_user_authorized():
         print("=" * 50)
         print("ОШИБКА АВТОРИЗАЦИИ: Строковая сессия недействительна!")
-        print(f"Текущее значение SESSION_STRING: '{os.environ.get('SESSION_STRING')}'")
         print("=" * 50)
         return
 
     print("Успешная авторизация в Telegram по строковой сессии!")
 
-    # Запускаем фоновые задачи
+    # Запускаем фоновый парсер и aiogram поллинг параллельно
     asyncio.create_task(poller())
     await dp.start_polling(bot)
 
