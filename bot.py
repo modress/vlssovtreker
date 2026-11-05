@@ -27,7 +27,7 @@ load_dotenv()
 
 # Получаем параметры из переменных окружения (или подставляем напрямую)
 API_ID = int(os.environ.get("API_ID", 30217191))
-API_HASH = os.environ.get("API_HASH", "815c67aa90d8c18d1a07f2886cebb9c4")
+API_HASH = os.environ.get("API_HASH", "e9bff42e86f6abd93260b02970d4f1fa")
 GROUP_ID = int(os.environ.get("GROUP_ID", -1004434066718))
 session_string = os.environ.get("SESSION_STRING", "1AZWarzwBuyFEKy1jnUI4RQ6tOO8lf8GkHAzdFHhxvImiMO2qnk-NparD8Lf4HGddDsI9tdosgUYJWbgHG5iE0sk5cUHvCzud6kbXBnozHT40CIoejAuhk7TuJPdJuuT4xjX6AomPl4FjWh2ubITAqoNVAD5z2CgRWLDD7GBR_t9aCovXUVo1lMCO7m3ry2HQGpYaZasD57KMB_LMeO5OUwvBl0Z4sVP_k6uHLYprou_ThrhsMitPLmQt2zTqtfrOXINNc6Im-bcTWamecy5g-g5jsNYeolAStvBipbDTfq70OSbhOkoHx_A3KuehVjpvT4bXvzQECNxhqcaGBo5aqQQN7CmePto=")
 
@@ -308,12 +308,12 @@ async def poller():
 async def main():
     logging.basicConfig(level=logging.INFO)
     
-    # Авторизация в Telethon
-    await tg.start()
+    # Безопасное подключение Telethon без запроса ввода в консоль (без input)
+    await tg.connect()
     
     if not await tg.is_user_authorized():
         print("=" * 50)
-        print("ОШИБКА АВТОРИЗАЦИИ: Строковая сессия недействительна!")
+        print("ОШИБКА АВТОРИЗАЦИИ: Строковая сессия (SESSION_STRING) пуста или недействительна!")
         print("=" * 50)
         return
 
